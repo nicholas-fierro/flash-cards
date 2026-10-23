@@ -1,5 +1,7 @@
 # Flash Cards
 
+Live: https://flashcards.nicholasfierro.dev
+
 Minimal study app. Agents dump JSON decks into `decks/`; you study them in the browser. Tracks got/missed per card for the session and lets you re-drill just the misses.
 
 ## Run
