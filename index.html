@@ -40,6 +40,9 @@
     background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; cursor: pointer;
   }
   .deck-item:hover { border-color: var(--accent); }
+  .deck-item .meta { font-size: 13px; color: var(--muted); }
+  .deck-item .src { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-left: 6px; }
+  .deck-item button { padding: 4px 10px; font-size: 13px; }
   textarea {
     width: 100%; min-height: 140px; font: 13px/1.4 ui-monospace, monospace; padding: 10px;
     border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text);
@@ -86,7 +89,7 @@
   <!-- LIBRARY -->
   <section id="library">
     <h1>Flash Cards</h1>
-    <div class="muted">Pick a deck from <code>decks/</code>, or paste / drop JSON.</div>
+    <div class="muted">Pick a deck, or import JSON. Imported decks and progress are saved in this browser.</div>
 
     <h2 class="row spread"><span>Decks</span><button id="refresh">Refresh</button></h2>
     <div id="deck-list" class="deck-list"></div>
@@ -95,7 +98,7 @@
     <h2>Load JSON</h2>
     <div id="drop" class="drop muted">Drop a .json file here</div>
     <textarea id="paste" placeholder='{"title": "My deck", "cards": [{"front": "Q", "back": "A"}]}' style="margin-top:10px"></textarea>
-    <div class="row" style="margin-top:8px"><button class="primary" id="load-paste">Study pasted JSON</button></div>
+    <div class="row" style="margin-top:8px"><button class="primary" id="load-paste">Import &amp; study</button></div>
     <div id="load-error" class="error"></div>
   </section>
 
@@ -145,10 +148,11 @@
       <button id="review-ever-missed">Review all ever missed</button>
       <button id="restart">Restart full deck</button>
       <button id="results-library">Decks</button>
+      <button id="reset-progress">Reset progress</button>
     </div>
     <label class="check" style="margin-top:12px"><input type="checkbox" id="shuffle" checked /> Shuffle rounds</label>
 
-    <h2>This session</h2>
+    <h2>Card history</h2>
     <table>
       <thead><tr><th>Card</th><th>Latest</th><th>Got / Missed</th></tr></thead>
       <tbody id="history"></tbody>
@@ -160,17 +164,56 @@
 const $ = (id) => document.getElementById(id);
 const show = (id) => ["library", "study", "results"].forEach((s) => $(s).classList.toggle("hidden", s !== id));
 
+// ---------- storage (IndexedDB) ----------
+// "decks": imported decks {key, title, cards, importedAt}
+// "progress": per-deck state {key, title, total, stats, round, updatedAt}, for both imported and server decks.
+// Every call swallows errors so the app still works (in memory only) when storage is unavailable.
+const store = (() => {
+  let conn;
+  const open = () => conn ??= new Promise((resolve, reject) => {
+    const req = indexedDB.open("flashcards", 1);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore("decks", { keyPath: "key" });
+      req.result.createObjectStore("progress", { keyPath: "key" });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  const run = async (name, mode, fn) => {
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(name, mode);
+      const req = fn(tx.objectStore(name));
+      tx.oncomplete = () => resolve(req.result);
+      tx.onerror = () => reject(tx.error);
+    });
+  };
+  return {
+    get: (name, key) => run(name, "readonly", (s) => s.get(key)).catch(() => undefined),
+    all: (name) => run(name, "readonly", (s) => s.getAll()).catch(() => []),
+    put: (name, value) => run(name, "readwrite", (s) => s.put(value)).catch(() => {}),
+    del: (name, key) => run(name, "readwrite", (s) => s.delete(key)).catch(() => {}),
+  };
+})();
+// Ask the browser not to evict our data under storage pressure (Safari otherwise may clear it after inactivity).
+navigator.storage?.persist?.().catch(() => {});
+
 // ---------- deck parsing ----------
 // Accepts {title, cards:[...]} or a bare array. Card fields: front/back, with q/a, question/answer, term/definition aliases.
+// Card ids default to the front text so progress survives reordering when a deck is regenerated.
 function parseDeck(raw, fallbackTitle) {
   const data = typeof raw === "string" ? JSON.parse(raw) : raw;
   const list = Array.isArray(data) ? data : data.cards;
   if (!Array.isArray(list) || !list.length) throw new Error('Expected a "cards" array (or a bare array) with at least one card.');
+  const seen = new Set();
   const cards = list.map((c, i) => {
     const front = c.front ?? c.q ?? c.question ?? c.term ?? c.prompt;
     const back = c.back ?? c.a ?? c.answer ?? c.definition ?? c.response;
     if (front == null || back == null) throw new Error(`Card ${i + 1} is missing front/back.`);
-    return { id: String(c.id ?? i), front: String(front), back: String(back), tags: c.tags || [] };
+    let id = String(c.id ?? front);
+    if (seen.has(id)) id += "#" + i;
+    seen.add(id);
+    return { id, front: String(front), back: String(back), tags: c.tags || [] };
   });
   return { title: (!Array.isArray(data) && data.title) || fallbackTitle || "Untitled deck", cards };
 }
@@ -183,44 +226,92 @@ function fmt(s) {
 }
 
 // ---------- library ----------
+function progressLabel(p) {
+  if (!p) return "Not started";
+  const mastered = Object.values(p.stats).filter((s) => s.last === "got").length;
+  let label = `${mastered}/${p.total} mastered`;
+  const r = p.round;
+  if (r && r.pos < r.queue.length) label += ` · round ${r.roundNo} in progress (${r.pos}/${r.queue.length})`;
+  return label;
+}
+
 async function loadLibrary() {
-  let decks = [];
-  try { decks = await (await fetch("/api/decks")).json(); } catch {}
+  let served = [];
+  try { served = await (await fetch("/api/decks")).json(); } catch {}
+  const [imported, progress] = await Promise.all([store.all("decks"), store.all("progress")]);
+  const prog = Object.fromEntries(progress.map((p) => [p.key, p]));
+
+  const items = [
+    ...imported.sort((a, b) => b.importedAt - a.importedAt).map((d) => ({
+      key: d.key, title: d.title, src: "imported",
+      open: () => openDeck({ key: d.key, title: d.title, cards: d.cards }),
+      remove: async () => {
+        if (!confirm(`Remove "${d.title}" and its progress from this browser?`)) return;
+        await store.del("decks", d.key); await store.del("progress", d.key); loadLibrary();
+      },
+    })),
+    ...served.map((d) => {
+      const key = "server:" + d.file, name = d.file.replace(/\.json$/, "");
+      return {
+        key, title: prog[key]?.title || name, src: "decks/",
+        open: async () => {
+          const text = await (await fetch("/decks/" + encodeURIComponent(d.file))).text();
+          openDeck({ key, ...parseDeck(text, name) });
+        },
+      };
+    }),
+  ];
+
   $("deck-list").innerHTML = "";
-  $("deck-empty").classList.toggle("hidden", decks.length > 0);
-  for (const d of decks) {
+  $("deck-empty").classList.toggle("hidden", items.length > 0);
+  for (const it of items) {
     const el = document.createElement("div");
     el.className = "deck-item";
-    el.innerHTML = `<b>${fmt(d.file.replace(/\.json$/, ""))}</b><span class="muted">Study →</span>`;
-    el.onclick = async () => {
-      try {
-        const text = await (await fetch("/decks/" + encodeURIComponent(d.file))).text();
-        startSession(parseDeck(text, d.file.replace(/\.json$/, "")));
-      } catch (e) { $("load-error").textContent = `${d.file}: ${e.message}`; }
-    };
+    el.innerHTML = `<div><b>${fmt(it.title)}</b><span class="src">${it.src}</span>
+      <div class="meta">${progressLabel(prog[it.key])}</div></div><div class="row"></div>`;
+    if (it.remove) {
+      const btn = document.createElement("button");
+      btn.textContent = "Remove";
+      btn.onclick = (e) => { e.stopPropagation(); it.remove(); };
+      el.lastElementChild.append(btn);
+    }
+    el.lastElementChild.insertAdjacentHTML("beforeend", '<span class="muted">Study →</span>');
+    el.onclick = () => it.open().catch((e) => { $("load-error").textContent = `${it.title}: ${e.message}`; });
     $("deck-list").append(el);
   }
 }
 
-function loadText(text, name) {
+// Imports are keyed by title, so re-importing a regenerated deck with the same title updates it and keeps progress.
+async function importText(text, name) {
   $("load-error").textContent = "";
-  try { startSession(parseDeck(text, name)); }
-  catch (e) { $("load-error").textContent = e.message; }
+  try {
+    const d = parseDeck(text, name);
+    const key = "import:" + d.title;
+    await store.put("decks", { key, title: d.title, cards: d.cards, importedAt: Date.now() });
+    $("paste").value = "";
+    openDeck({ key, ...d });
+  } catch (e) { $("load-error").textContent = e.message; }
 }
 
 $("refresh").onclick = loadLibrary;
-$("load-paste").onclick = () => loadText($("paste").value, "Pasted deck");
+$("load-paste").onclick = () => importText($("paste").value, "Pasted deck");
 const drop = $("drop");
 drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
 drop.ondragleave = () => drop.classList.remove("over");
 drop.ondrop = async (e) => {
   e.preventDefault(); drop.classList.remove("over");
-  const f = e.dataTransfer.files[0];
-  if (f) loadText(await f.text(), f.name.replace(/\.json$/, ""));
+  for (const f of e.dataTransfer.files) await importText(await f.text(), f.name.replace(/\.json$/, ""));
 };
 
-// ---------- session state (in-memory; lives for this page session) ----------
+// ---------- study state (persisted per deck) ----------
 let deck, stats, queue, pos, results, roundNo, roundKind, revealed, undoStack;
+
+function save() {
+  store.put("progress", {
+    key: deck.key, title: deck.title, total: deck.cards.length, stats,
+    round: { queue, pos, results, roundNo, kind: roundKind }, updatedAt: Date.now(),
+  });
+}
 
 function shuffle(a) {
   if (!$("shuffle").checked) return a;
@@ -228,20 +319,33 @@ function shuffle(a) {
   return a;
 }
 
-function startSession(d) {
+// Restore saved stats and round; a saved round is dropped if the deck's cards changed under it.
+async function openDeck(d) {
   deck = d;
-  // per-card: got/missed counts and latest result across all rounds
-  stats = Object.fromEntries(d.cards.map((c) => [c.id, { got: 0, missed: 0, last: null }]));
-  roundNo = 0;
-  startRound(d.cards.map((c) => c.id), "Full deck");
+  const saved = await store.get("progress", d.key);
+  stats = Object.fromEntries(d.cards.map((c) => [c.id, saved?.stats?.[c.id] ?? { got: 0, missed: 0, last: null }]));
+  const r = saved?.round;
+  const ids = new Set(d.cards.map((c) => c.id));
+  if (r && r.queue.every((id) => ids.has(id))) {
+    ({ queue, pos, results, roundNo } = r); roundKind = r.kind; undoStack = [];
+    $("deck-title").textContent = deck.title;
+    $("round-label").textContent = roundLabel();
+    if (pos < queue.length) { show("study"); renderCard(); } else finishRound();
+  } else {
+    roundNo = saved?.round?.roundNo ?? 0;
+    startRound(d.cards.map((c) => c.id), "Full deck");
+  }
 }
+
+const roundLabel = () => `Round ${roundNo} · ${roundKind} · ${queue.length} card${queue.length === 1 ? "" : "s"}`;
 
 function startRound(ids, kind) {
   if (!ids.length) return;
   roundNo++; roundKind = kind;
   queue = shuffle([...ids]); pos = 0; results = {}; undoStack = [];
   $("deck-title").textContent = deck.title;
-  $("round-label").textContent = `Round ${roundNo} · ${kind} · ${ids.length} card${ids.length === 1 ? "" : "s"}`;
+  $("round-label").textContent = roundLabel();
+  save();
   show("study");
   renderCard();
 }
@@ -291,6 +395,7 @@ function grade(kind) {
   s[kind]++; s.last = kind;
   results[id] = kind;
   pos++;
+  save();
   renderCard();
 }
 
@@ -300,6 +405,7 @@ function undo() {
   stats[u.id] = u.prev;
   delete results[u.id];
   pos--;
+  save();
   renderCard();
   reveal();
 }
@@ -340,8 +446,13 @@ $("card").onclick = reveal;
 $("got").onclick = () => grade("got");
 $("missed").onclick = () => grade("missed");
 $("undo").onclick = undo;
-$("end-round").onclick = () => { queue = queue.slice(0, pos); finishRound(); };
+$("end-round").onclick = () => { queue = queue.slice(0, pos); save(); finishRound(); };
 $("restart").onclick = () => startRound(deck.cards.map((c) => c.id), "Full deck");
+$("reset-progress").onclick = async () => {
+  if (!confirm(`Reset all progress for "${deck.title}"?`)) return;
+  await store.del("progress", deck.key);
+  openDeck(deck);
+};
 $("back-to-library").onclick = $("results-library").onclick = () => { show("library"); loadLibrary(); };
 $("reverse").onchange = () => pos < queue.length && renderCard();
 
