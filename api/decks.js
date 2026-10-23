@@ -10,7 +10,8 @@ function listDecks() {
     .readdirSync(DECKS)
     .filter((f) => f.endsWith(".json"))
     .map((f) => ({ file: f, mtime: fs.statSync(path.join(DECKS, f)).mtimeMs }))
-    .sort((a, b) => b.mtime - a.mtime);
+    // Newest first locally; Vercel normalizes mtimes, so fall back to name
+    .sort((a, b) => b.mtime - a.mtime || a.file.localeCompare(b.file));
 }
 
 module.exports = (req, res) => {

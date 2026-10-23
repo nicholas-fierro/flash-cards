@@ -191,7 +191,7 @@ async function loadLibrary() {
   for (const d of decks) {
     const el = document.createElement("div");
     el.className = "deck-item";
-    el.innerHTML = `<div><b>${fmt(d.file.replace(/\.json$/, ""))}</b><div class="muted">${new Date(d.mtime).toLocaleString()}</div></div><span class="muted">Study →</span>`;
+    el.innerHTML = `<b>${fmt(d.file.replace(/\.json$/, ""))}</b><span class="muted">Study →</span>`;
     el.onclick = async () => {
       try {
         const text = await (await fetch("/decks/" + encodeURIComponent(d.file))).text();
