@@ -62,6 +62,7 @@
   .card .side { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
   .card .content { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center;
     font-size: 22px; white-space: pre-wrap; padding: 16px 0; overflow-wrap: anywhere; }
+  .card .content > div { max-width: 100%; }
   .card .answer { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 8px; font-size: 19px;
     white-space: pre-wrap; text-align: center; overflow-wrap: anywhere; }
   .card .hint { font-size: 13px; color: var(--muted); text-align: center; }
@@ -358,8 +359,9 @@ function renderCard() {
   const rev = $("reverse").checked;
   revealed = false;
   $("side-label").textContent = rev ? "Back" : "Front";
-  $("front").innerHTML = fmt(rev ? c.back : c.front);
-  $("back").innerHTML = fmt(rev ? c.front : c.back);
+  // Single wrapper so the flex-centered #front lays out one block, not one flex item per inline tag
+  $("front").innerHTML = `<div>${fmt(rev ? c.back : c.front)}</div>`;
+  $("back").innerHTML = `<div>${fmt(rev ? c.front : c.back)}</div>`;
   $("back").classList.add("hidden");
   $("grade").classList.add("hidden");
   $("flip-hint").classList.remove("hidden");
