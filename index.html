@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Flash Cards</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --line: #e3e1dc;
+    --accent: #3b5bdb; --good: #2f9e44; --bad: #e03131; --shadow: 0 8px 30px rgba(0,0,0,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --panel: #1f1f23; --text: #ececf0; --muted: #9a9aa3; --line: #2e2e34;
+      --accent: #7c93ff; --good: #51cf66; --bad: #ff6b6b; --shadow: 0 8px 30px rgba(0,0,0,.4);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 24px 0 8px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  button {
+    font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+    padding: 8px 14px; border-radius: 8px;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.good { background: var(--good); border-color: var(--good); color: #fff; }
+  button.bad { background: var(--bad); border-color: var(--bad); color: #fff; }
+  button:disabled { opacity: .4; cursor: default; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .spread { justify-content: space-between; }
+  .hidden { display: none !important; }
+
+  .deck-list { display: grid; gap: 8px; margin-top: 8px; }
+  .deck-item {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; cursor: pointer;
+  }
+  .deck-item:hover { border-color: var(--accent); }
+  textarea {
+    width: 100%; min-height: 140px; font: 13px/1.4 ui-monospace, monospace; padding: 10px;
+    border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  }
+  .drop { border: 2px dashed var(--line); border-radius: 10px; padding: 16px; text-align: center; }
+  .drop.over { border-color: var(--accent); }
+  .error { color: var(--bad); font-size: 14px; margin-top: 6px; white-space: pre-wrap; }
+
+  .progress { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin: 12px 0 6px; display: flex; }
+  .progress .g { background: var(--good); }
+  .progress .b { background: var(--bad); }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+    min-height: 280px; padding: 28px; margin: 16px 0; cursor: pointer; display: flex; flex-direction: column;
+  }
+  .card .side { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .card .content { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center;
+    font-size: 22px; white-space: pre-wrap; padding: 16px 0; overflow-wrap: anywhere; }
+  .card .answer { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 8px; font-size: 19px;
+    white-space: pre-wrap; text-align: center; overflow-wrap: anywhere; }
+  .card .hint { font-size: 13px; color: var(--muted); text-align: center; }
+  code { font-family: ui-monospace, monospace; background: var(--line); padding: 1px 5px; border-radius: 4px; font-size: .9em; }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tag { font-size: 12px; background: var(--line); border-radius: 999px; padding: 1px 8px; color: var(--muted); }
+  .grade { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grade button { padding: 14px; font-size: 17px; }
+  kbd { font: 12px ui-monospace, monospace; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; opacity: .8; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; text-align: center; }
+  .stat b { display: block; font-size: 26px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  .pill { font-size: 12px; padding: 1px 8px; border-radius: 999px; color: #fff; white-space: nowrap; }
+  .pill.good { background: var(--good); }
+  .pill.bad { background: var(--bad); }
+  label.check { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <!-- LIBRARY -->
+  <section id="library">
+    <h1>Flash Cards</h1>
+    <div class="muted">Pick a deck from <code>decks/</code>, or paste / drop JSON.</div>
+
+    <h2 class="row spread"><span>Decks</span><button id="refresh">Refresh</button></h2>
+    <div id="deck-list" class="deck-list"></div>
+    <div id="deck-empty" class="muted hidden">No decks found. Have an agent write JSON into <code>decks/</code>.</div>
+
+    <h2>Load JSON</h2>
+    <div id="drop" class="drop muted">Drop a .json file here</div>
+    <textarea id="paste" placeholder='{"title": "My deck", "cards": [{"front": "Q", "back": "A"}]}' style="margin-top:10px"></textarea>
+    <div class="row" style="margin-top:8px"><button class="primary" id="load-paste">Study pasted JSON</button></div>
+    <div id="load-error" class="error"></div>
+  </section>
+
+  <!-- STUDY -->
+  <section id="study" class="hidden">
+    <div class="row spread">
+      <div>
+        <h1 id="deck-title"></h1>
+        <div class="muted" id="round-label"></div>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="reverse" /> Back first</label>
+        <button id="end-round">End round</button>
+        <button id="back-to-library">Decks</button>
+      </div>
+    </div>
+    <div class="progress"><div class="g" id="pg"></div><div class="b" id="pb"></div></div>
+    <div class="muted row spread"><span id="counter"></span><span id="tally"></span></div>
+
+    <div class="card" id="card">
+      <div class="row spread"><span class="side" id="side-label">Front</span><div class="tags" id="tags"></div></div>
+      <div class="content" id="front"></div>
+      <div class="answer hidden" id="back"></div>
+      <div class="hint" id="flip-hint">Click or press <kbd>Space</kbd> to reveal</div>
+    </div>
+
+    <div class="grade hidden" id="grade">
+      <button class="bad" id="missed">Missed <kbd>←</kbd> <kbd>J</kbd></button>
+      <button class="good" id="got">Got it <kbd>→</kbd> <kbd>K</kbd></button>
+    </div>
+    <div class="row" style="justify-content:center;margin-top:10px">
+      <button id="undo" disabled>Undo <kbd>U</kbd></button>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section id="results" class="hidden">
+    <h1 id="results-title">Round complete</h1>
+    <div class="muted" id="results-sub"></div>
+    <div class="stats">
+      <div class="stat"><b id="r-got" style="color:var(--good)"></b><span class="muted">got</span></div>
+      <div class="stat"><b id="r-missed" style="color:var(--bad)"></b><span class="muted">missed</span></div>
+      <div class="stat"><b id="r-mastered"></b><span class="muted">deck mastered</span></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="review-missed">Review missed</button>
+      <button id="review-ever-missed">Review all ever missed</button>
+      <button id="restart">Restart full deck</button>
+      <button id="results-library">Decks</button>
+    </div>
+    <label class="check" style="margin-top:12px"><input type="checkbox" id="shuffle" checked /> Shuffle rounds</label>
+
+    <h2>This session</h2>
+    <table>
+      <thead><tr><th>Card</th><th>Latest</th><th>Got / Missed</th></tr></thead>
+      <tbody id="history"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const show = (id) => ["library", "study", "results"].forEach((s) => $(s).classList.toggle("hidden", s !== id));
+
+// ---------- deck parsing ----------
+// Accepts {title, cards:[...]} or a bare array. Card fields: front/back, with q/a, question/answer, term/definition aliases.
+function parseDeck(raw, fallbackTitle) {
+  const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+  const list = Array.isArray(data) ? data : data.cards;
+  if (!Array.isArray(list) || !list.length) throw new Error('Expected a "cards" array (or a bare array) with at least one card.');
+  const cards = list.map((c, i) => {
+    const front = c.front ?? c.q ?? c.question ?? c.term ?? c.prompt;
+    const back = c.back ?? c.a ?? c.answer ?? c.definition ?? c.response;
+    if (front == null || back == null) throw new Error(`Card ${i + 1} is missing front/back.`);
+    return { id: String(c.id ?? i), front: String(front), back: String(back), tags: c.tags || [] };
+  });
+  return { title: (!Array.isArray(data) && data.title) || fallbackTitle || "Untitled deck", cards };
+}
+
+// Escape HTML, then render `inline code` and **bold**.
+function fmt(s) {
+  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c])
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+}
+
+// ---------- library ----------
+async function loadLibrary() {
+  let decks = [];
+  try { decks = await (await fetch("/api/decks")).json(); } catch {}
+  $("deck-list").innerHTML = "";
+  $("deck-empty").classList.toggle("hidden", decks.length > 0);
+  for (const d of decks) {
+    const el = document.createElement("div");
+    el.className = "deck-item";
+    el.innerHTML = `<div><b>${fmt(d.file.replace(/\.json$/, ""))}</b><div class="muted">${new Date(d.mtime).toLocaleString()}</div></div><span class="muted">Study →</span>`;
+    el.onclick = async () => {
+      try {
+        const text = await (await fetch("/decks/" + encodeURIComponent(d.file))).text();
+        startSession(parseDeck(text, d.file.replace(/\.json$/, "")));
+      } catch (e) { $("load-error").textContent = `${d.file}: ${e.message}`; }
+    };
+    $("deck-list").append(el);
+  }
+}
+
+function loadText(text, name) {
+  $("load-error").textContent = "";
+  try { startSession(parseDeck(text, name)); }
+  catch (e) { $("load-error").textContent = e.message; }
+}
+
+$("refresh").onclick = loadLibrary;
+$("load-paste").onclick = () => loadText($("paste").value, "Pasted deck");
+const drop = $("drop");
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = async (e) => {
+  e.preventDefault(); drop.classList.remove("over");
+  const f = e.dataTransfer.files[0];
+  if (f) loadText(await f.text(), f.name.replace(/\.json$/, ""));
+};
+
+// ---------- session state (in-memory; lives for this page session) ----------
+let deck, stats, queue, pos, results, roundNo, roundKind, revealed, undoStack;
+
+function shuffle(a) {
+  if (!$("shuffle").checked) return a;
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+function startSession(d) {
+  deck = d;
+  // per-card: got/missed counts and latest result across all rounds
+  stats = Object.fromEntries(d.cards.map((c) => [c.id, { got: 0, missed: 0, last: null }]));
+  roundNo = 0;
+  startRound(d.cards.map((c) => c.id), "Full deck");
+}
+
+function startRound(ids, kind) {
+  if (!ids.length) return;
+  roundNo++; roundKind = kind;
+  queue = shuffle([...ids]); pos = 0; results = {}; undoStack = [];
+  $("deck-title").textContent = deck.title;
+  $("round-label").textContent = `Round ${roundNo} · ${kind} · ${ids.length} card${ids.length === 1 ? "" : "s"}`;
+  show("study");
+  renderCard();
+}
+
+const byId = (id) => deck.cards.find((c) => c.id === id);
+
+function renderCard() {
+  if (pos >= queue.length) return finishRound();
+  const c = byId(queue[pos]);
+  const rev = $("reverse").checked;
+  revealed = false;
+  $("side-label").textContent = rev ? "Back" : "Front";
+  $("front").innerHTML = fmt(rev ? c.back : c.front);
+  $("back").innerHTML = fmt(rev ? c.front : c.back);
+  $("back").classList.add("hidden");
+  $("grade").classList.add("hidden");
+  $("flip-hint").classList.remove("hidden");
+  $("tags").innerHTML = c.tags.map((t) => `<span class="tag">${fmt(String(t))}</span>`).join("");
+  const s = stats[c.id];
+  const prior = s.got + s.missed ? ` · this card: ${s.got}✓ ${s.missed}✗` : "";
+  $("counter").textContent = `${pos + 1} / ${queue.length}${prior}`;
+  renderProgress();
+}
+
+function renderProgress() {
+  const vals = Object.values(results);
+  const g = vals.filter((v) => v === "got").length, m = vals.length - g;
+  $("pg").style.width = (100 * g / queue.length) + "%";
+  $("pb").style.width = (100 * m / queue.length) + "%";
+  $("tally").textContent = `${g} got · ${m} missed`;
+  $("undo").disabled = !undoStack.length;
+}
+
+function reveal() {
+  if (revealed || pos >= queue.length) return;
+  revealed = true;
+  $("back").classList.remove("hidden");
+  $("grade").classList.remove("hidden");
+  $("flip-hint").classList.add("hidden");
+}
+
+function grade(kind) {
+  if (!revealed) return;
+  const id = queue[pos];
+  const s = stats[id];
+  undoStack.push({ id, prev: { ...s } });
+  s[kind]++; s.last = kind;
+  results[id] = kind;
+  pos++;
+  renderCard();
+}
+
+function undo() {
+  const u = undoStack.pop();
+  if (!u) return;
+  stats[u.id] = u.prev;
+  delete results[u.id];
+  pos--;
+  renderCard();
+  reveal();
+}
+
+function finishRound() {
+  const ids = Object.keys(results);
+  const missed = ids.filter((id) => results[id] === "missed");
+  const got = ids.length - missed.length;
+  const mastered = deck.cards.filter((c) => stats[c.id].last === "got").length;
+  const everMissed = deck.cards.filter((c) => stats[c.id].missed > 0);
+
+  $("results-title").textContent = missed.length ? `Round ${roundNo} complete` : (ids.length ? "All correct this round 🎉" : "Round ended");
+  $("results-sub").textContent = `${deck.title} · ${roundKind}`;
+  $("r-got").textContent = got;
+  $("r-missed").textContent = missed.length;
+  $("r-mastered").textContent = `${mastered}/${deck.cards.length}`;
+  $("review-missed").textContent = `Review missed (${missed.length})`;
+  $("review-missed").disabled = !missed.length;
+  $("review-missed").onclick = () => startRound(missed, "Missed from round " + roundNo);
+  $("review-ever-missed").textContent = `Review all ever missed (${everMissed.length})`;
+  $("review-ever-missed").disabled = !everMissed.length;
+  $("review-ever-missed").onclick = () => startRound(everMissed.map((c) => c.id), "All ever missed");
+
+  // history table: worst first
+  const rows = deck.cards
+    .filter((c) => stats[c.id].got + stats[c.id].missed)
+    .sort((a, b) => (stats[b.id].last === "missed") - (stats[a.id].last === "missed") || stats[b.id].missed - stats[a.id].missed);
+  $("history").innerHTML = rows.map((c) => {
+    const s = stats[c.id];
+    return `<tr><td>${fmt(c.front)}<div class="muted">${fmt(c.back)}</div></td>
+      <td><span class="pill ${s.last === "got" ? "good" : "bad"}">${s.last === "got" ? "got" : "missed"}</span></td>
+      <td>${s.got} / ${s.missed}</td></tr>`;
+  }).join("");
+  show("results");
+}
+
+$("card").onclick = reveal;
+$("got").onclick = () => grade("got");
+$("missed").onclick = () => grade("missed");
+$("undo").onclick = undo;
+$("end-round").onclick = () => { queue = queue.slice(0, pos); finishRound(); };
+$("restart").onclick = () => startRound(deck.cards.map((c) => c.id), "Full deck");
+$("back-to-library").onclick = $("results-library").onclick = () => { show("library"); loadLibrary(); };
+$("reverse").onchange = () => pos < queue.length && renderCard();
+
+document.addEventListener("keydown", (e) => {
+  if ($("study").classList.contains("hidden") || e.target.tagName === "TEXTAREA") return;
+  const k = e.key.toLowerCase();
+  if (k === " " || k === "enter") { e.preventDefault(); reveal(); }
+  else if (k === "arrowright" || k === "k") grade("got");
+  else if (k === "arrowleft" || k === "j") grade("missed");
+  else if (k === "u") undo();
+});
+
+loadLibrary();
+</script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+{
+  "functions": { "api/decks.js": { "includeFiles": "decks/**" } },
+  "headers": [{ "source": "/decks/(.*)", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }]
+}

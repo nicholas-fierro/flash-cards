@@ -1,0 +1,12 @@
+{
+  "title": "Sample: HTTP basics",
+  "description": "Example deck showing the format agents should produce.",
+  "cards": [
+    { "front": "What does HTTP 404 mean?", "back": "Not Found — the server can't find the requested resource.", "tags": ["status-codes"] },
+    { "front": "What does HTTP 401 mean?", "back": "Unauthorized — authentication is required or failed.", "tags": ["status-codes"] },
+    { "front": "What does HTTP 403 mean?", "back": "Forbidden — authenticated (or not) but not allowed to access the resource.", "tags": ["status-codes"] },
+    { "front": "Which HTTP methods are idempotent?", "back": "GET, HEAD, PUT, DELETE, OPTIONS, TRACE.\n(POST and PATCH are not guaranteed idempotent.)", "tags": ["methods"] },
+    { "front": "What header tells the client the response body format?", "back": "Content-Type", "tags": ["headers"] },
+    { "front": "What does the `Cache-Control: no-store` directive do?", "back": "Tells caches not to store any part of the request or response.", "tags": ["headers", "caching"] }
+  ]
+}
